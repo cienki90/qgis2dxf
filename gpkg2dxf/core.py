@@ -147,6 +147,94 @@ def layers_to_geojson_wgs84(layers: list[LayerInfo]) -> dict[str, Any]:
     return {"type": "FeatureCollection", "features": out_features}
 
 
+def layers_to_map_shapes(layers: list[LayerInfo]) -> dict[str, dict]:
+    """Reproject geometries to WGS84 grouped per layer for a native map widget.
+
+    Returns ``{layer_name: {"points": [...], "lines": [...], "polygons": [...],
+    "labels": [...], "bbox": (min_lat, min_lon, max_lat, max_lon) | None}}``.
+
+    Coordinates use ``(lat, lon)`` ordering, which is what tkintermapview
+    (set_marker / set_path / set_polygon) expects.
+    """
+    transformers: dict[int, Transformer] = {}
+
+    def get_transformer(epsg: int) -> Transformer | None:
+        if epsg == 4326:
+            return None
+        if epsg not in transformers:
+            transformers[epsg] = Transformer.from_crs(epsg, 4326, always_xy=True)
+        return transformers[epsg]
+
+    def to_latlon(geom_obj, tr):
+        if tr is not None:
+            geom_obj = shp_transform(lambda x, y, z=None: tr.transform(x, y), geom_obj)
+        return geom_obj
+
+    result: dict[str, dict] = {}
+    for layer in layers:
+        entry = {"points": [], "lines": [], "polygons": [], "labels": [], "bbox": None}
+        result[layer.name] = entry
+        if not layer.epsg:
+            continue
+        tr = get_transformer(layer.epsg)
+        label_field = _default_label_field(layer.fields)
+
+        min_lat = min_lon = float("inf")
+        max_lat = max_lon = float("-inf")
+
+        def track(lat, lon):
+            nonlocal min_lat, min_lon, max_lat, max_lon
+            min_lat, max_lat = min(min_lat, lat), max(max_lat, lat)
+            min_lon, max_lon = min(min_lon, lon), max(max_lon, lon)
+
+        for feat in layer.features:
+            geom = feat["geometry"]
+            if not geom:
+                continue
+            g = to_latlon(shape(geom), tr)
+            gtype = g.geom_type
+            label = feat["properties"].get(label_field) if label_field else None
+            label = None if label in (None, "") else str(label)
+
+            def line_coords(ls):
+                return [(y, x) for (x, y) in ls.coords]
+
+            if gtype == "Point":
+                lat, lon = g.y, g.x
+                entry["points"].append({"pos": (lat, lon), "label": label})
+                track(lat, lon)
+            elif gtype == "MultiPoint":
+                for p in g.geoms:
+                    entry["points"].append({"pos": (p.y, p.x), "label": label})
+                    track(p.y, p.x)
+            elif gtype == "LineString":
+                coords = line_coords(g)
+                entry["lines"].append(coords)
+                for lat, lon in coords:
+                    track(lat, lon)
+            elif gtype == "MultiLineString":
+                for part in g.geoms:
+                    coords = line_coords(part)
+                    entry["lines"].append(coords)
+                    for lat, lon in coords:
+                        track(lat, lon)
+            elif gtype == "Polygon":
+                coords = line_coords(g.exterior)
+                entry["polygons"].append(coords)
+                for lat, lon in coords:
+                    track(lat, lon)
+            elif gtype == "MultiPolygon":
+                for poly in g.geoms:
+                    coords = line_coords(poly.exterior)
+                    entry["polygons"].append(coords)
+                    for lat, lon in coords:
+                        track(lat, lon)
+
+        if min_lat != float("inf"):
+            entry["bbox"] = (min_lat, min_lon, max_lat, max_lon)
+    return result
+
+
 def _add_label(msp, layer_name: str, x: float, y: float, text: str, height: float):
     """Add a single-line TEXT entity anchored at (x, y)."""
     txt = msp.add_text(

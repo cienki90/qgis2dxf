@@ -1,8 +1,13 @@
 # GPKG → DXF — konwerter z podglądem na mapie
 
 Narzędzie, które eksportuje dane z pliku **GeoPackage (`.gpkg`)** do **DXF**,
-z przyjaznym interfejsem webowym i podglądem lokalizacji obiektów na mapie
-**OpenStreetMap**.
+z przyjaznym interfejsem i podglądem lokalizacji obiektów na mapie
+**OpenStreetMap**. Dostępne w dwóch wariantach — oba w czystym Pythonie:
+
+- 🖥️ **Desktop** (`desktop.py`) — natywne okno **tkinter + tkintermapview**,
+  bez przeglądarki i bez serwera. Odpalasz jeden plik `.py`.
+- 🌐 **Web** (`app.py`) — serwer **Flask** + mapa **Leaflet** w przeglądarce.
+- ⌨️ **CLI** (`cli.py`) — konwersja z linii poleceń.
 
 ![flow](https://img.shields.io/badge/GPKG-%E2%86%92%20DXF-f97316)
 
@@ -29,7 +34,8 @@ z przyjaznym interfejsem webowym i podglądem lokalizacji obiektów na mapie
 
 ```bat
 setup.bat        :: tworzy .venv i instaluje zaleznosci
-uruchom.bat      :: startuje serwer i otwiera http://127.0.0.1:5000
+pulpit.bat       :: aplikacja DESKTOPOWA (okno z mapa OSM) — zalecane
+uruchom.bat      :: wersja WEB — startuje serwer i otwiera http://127.0.0.1:5000
 ```
 
 Dodatkowo:
@@ -44,8 +50,14 @@ konwertuj.bat plik.gpkg     :: szybka konwersja z CLI (lub przeciagnij plik na .
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-python app.py        # otwórz http://127.0.0.1:5000
+
+python desktop.py    # natywne okno z mapą (desktop)
+# albo
+python app.py        # wersja web — otwórz http://127.0.0.1:5000
 ```
+
+> Wersja desktopowa wymaga działającego środowiska graficznego (na Linuksie
+> także pakietu `python3-tk`). Na Windows i macOS tkinter jest wbudowany.
 
 ## Użycie z linii poleceń (bez przeglądarki)
 
@@ -60,11 +72,12 @@ python cli.py plik.gpkg --list                # tylko wypisz warstwy i CRS
 ## Struktura projektu
 
 ```
-app.py                 — serwer Flask (upload / podgląd / eksport)
+desktop.py             — aplikacja desktopowa (tkinter + tkintermapview, mapa OSM)
+app.py                 — serwer Flask (upload / podgląd / eksport) — wersja web
 cli.py                 — konwerter z linii poleceń
 gpkg2dxf/
   core.py              — logika: odczyt GPKG, reprojekcja WGS84, zapis DXF
-templates/index.html   — interfejs (Leaflet + OSM, drag&drop, lista warstw)
+templates/index.html   — interfejs web (Leaflet + OSM, drag&drop, lista warstw)
 requirements.txt       — zależności
 *.bat                  — skrypty uruchomieniowe dla Windows
 ```

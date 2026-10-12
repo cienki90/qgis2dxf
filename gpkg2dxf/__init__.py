@@ -2,6 +2,7 @@
 from .core import (
     read_gpkg_layers,
     layers_to_geojson_wgs84,
+    layers_to_map_shapes,
     export_to_dxf,
     LayerInfo,
 )
@@ -9,6 +10,7 @@ from .core import (
 __all__ = [
     "read_gpkg_layers",
     "layers_to_geojson_wgs84",
+    "layers_to_map_shapes",
     "export_to_dxf",
     "LayerInfo",
 ]
