@@ -31,6 +31,12 @@ from shapely.ops import transform as shp_transform
 # QGIS stores symbology in this non-spatial table; it is not a real layer.
 SKIP_LAYERS = {"layer_styles"}
 
+# Sentinel: pick the right PL-2000 zone automatically from the data extent.
+AUTO_PL2000 = "auto-2000"
+
+# PL-2000 (układ 2000) zones -> EPSG. Central meridians: 15/18/21/24 E.
+PL2000_ZONES = {5: 2176, 6: 2177, 7: 2178, 8: 2179}
+
 # A readable palette of ACI (AutoCAD Color Index) colors assigned to layers
 # in order, so the exported DXF is not all one color.
 ACI_PALETTE = [1, 3, 5, 6, 2, 4, 30, 40, 150, 8]  # red, green, blue, magenta...
@@ -308,11 +314,98 @@ def _geom_bbox_diagonal(layers: list[LayerInfo]) -> float:
     return diag or 100.0
 
 
+def _source_epsg(layers: list[LayerInfo]) -> int | None:
+    """First known source EPSG among the layers (they share one in a GPKG)."""
+    for layer in layers:
+        if layer.epsg:
+            return layer.epsg
+    return None
+
+
+def _mean_lon(layers: list[LayerInfo], source_epsg: int) -> float | None:
+    """Longitude of the data centroid (deg) — used to pick the PL-2000 zone."""
+    to_wgs = Transformer.from_crs(source_epsg, 4326, always_xy=True)
+    minx = miny = float("inf")
+    maxx = maxy = float("-inf")
+    for layer in layers:
+        for feat in layer.features:
+            geom = feat["geometry"]
+            if not geom:
+                continue
+            try:
+                b = shape(geom).bounds
+            except Exception:
+                continue
+            minx, miny = min(minx, b[0]), min(miny, b[1])
+            maxx, maxy = max(maxx, b[2]), max(maxy, b[3])
+    if minx == float("inf"):
+        return None
+    cx, cy = (minx + maxx) / 2.0, (miny + maxy) / 2.0
+    lon, _lat = to_wgs.transform(cx, cy)
+    return lon
+
+
+def pick_pl2000_epsg(layers: list[LayerInfo]) -> int:
+    """Choose the PL-2000 zone (EPSG 2176/2177/2178/2179) from data location.
+
+    Zone number = round(central_lon / 3); meridians are 15°/18°/21°/24° E,
+    i.e. zones 5/6/7/8. Falls back to zone 7 (21° E, central Poland) when the
+    extent cannot be determined.
+    """
+    src = _source_epsg(layers)
+    if src is None:
+        return PL2000_ZONES[7]
+    lon = _mean_lon(layers, src)
+    if lon is None:
+        return PL2000_ZONES[7]
+    zone = int(round(lon / 3.0))
+    zone = min(8, max(5, zone))  # clamp to Poland's zones
+    return PL2000_ZONES[zone]
+
+
+def _reproject_features(layers: list[LayerInfo], target_epsg: int) -> list[LayerInfo]:
+    """Return copies of the layers with every geometry reprojected to target.
+
+    Layers whose source EPSG matches the target (or is unknown) are passed
+    through unchanged. Properties are shared by reference (read-only here).
+    """
+    out: list[LayerInfo] = []
+    transformers: dict[int, Transformer] = {}
+    for layer in layers:
+        if not layer.epsg or layer.epsg == target_epsg:
+            out.append(layer)
+            continue
+        tr = transformers.get(layer.epsg)
+        if tr is None:
+            tr = Transformer.from_crs(layer.epsg, target_epsg, always_xy=True)
+            transformers[layer.epsg] = tr
+        new_feats = []
+        for feat in layer.features:
+            geom = feat["geometry"]
+            if geom:
+                g = shp_transform(lambda x, y, z=None: tr.transform(x, y), shape(geom))
+                geom = mapping(g)
+            new_feats.append({"geometry": geom, "properties": feat["properties"]})
+        out.append(
+            LayerInfo(
+                name=layer.name,
+                geometry_type=layer.geometry_type,
+                feature_count=layer.feature_count,
+                fields=layer.fields,
+                epsg=target_epsg,
+                crs_name=f"EPSG:{target_epsg}",
+                features=new_feats,
+            )
+        )
+    return out
+
+
 def export_to_dxf(
     layers: list[LayerInfo],
     selected: set[str] | None = None,
     label_field_by_layer: dict[str, str] | None = None,
     include_point_labels: bool = True,
+    target_epsg: int | str | None = AUTO_PL2000,
 ) -> bytes:
     """Convert the given layers to a DXF document and return it as bytes.
 
@@ -327,7 +420,19 @@ def export_to_dxf(
         render as TEXT. If a layer is absent, a sensible default is chosen.
     include_point_labels:
         When True, point layers get a TEXT label next to each point.
+    target_epsg:
+        Target CRS for the DXF coordinates. Defaults to ``AUTO_PL2000`` which
+        reprojects to the correct **układ 2000** zone (EPSG 2176–2179) picked
+        from the data location. Pass a specific EPSG int to force a CRS, or
+        ``None`` to keep the source coordinates (no reprojection).
     """
+    # Resolve the target CRS and reproject up-front so the drawing code and
+    # the text-height/marker scaling all operate in the output CRS.
+    if target_epsg == AUTO_PL2000:
+        target_epsg = pick_pl2000_epsg(layers)
+    if isinstance(target_epsg, int):
+        layers = _reproject_features(layers, target_epsg)
+
     label_field_by_layer = label_field_by_layer or {}
     doc = ezdxf.new(dxfversion="R2010")
     doc.header["$INSUNITS"] = 6  # meters

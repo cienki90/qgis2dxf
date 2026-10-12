@@ -154,6 +154,21 @@
 
       <div class="section">
         <h2>3 · Eksport</h2>
+        <label class="opt" style="display:block">
+          Układ współrzędnych DXF:
+          <select id="crs" style="width:100%;margin-top:6px;padding:6px;
+                  background:var(--panel-2);color:var(--text);
+                  border:1px solid var(--border);border-radius:6px">
+            <option value="2000" selected>PL-2000 (auto strefa 5–8)</option>
+            <option value="2176">PL-2000 strefa 5 (15°E, EPSG:2176)</option>
+            <option value="2177">PL-2000 strefa 6 (18°E, EPSG:2177)</option>
+            <option value="2178">PL-2000 strefa 7 (21°E, EPSG:2178)</option>
+            <option value="2179">PL-2000 strefa 8 (24°E, EPSG:2179)</option>
+            <option value="1992">PL-1992 (EPSG:2180)</option>
+            <option value="source">bez zmiany (jak w pliku)</option>
+          </select>
+        </label>
+        <div style="height:10px"></div>
         <label class="opt">
           <input type="checkbox" id="labels" checked />
           Dodaj etykiety tekstowe (opis/numer) dla punktów
@@ -307,6 +322,7 @@
             filename: state.filename,
             layers: selected,
             include_labels: el("labels").checked,
+            crs: el("crs").value,
           }),
         });
         if (!res.ok) {

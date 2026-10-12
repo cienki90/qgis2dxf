@@ -64,13 +64,29 @@ python app.py        # wersja web — otwórz http://127.0.0.1:5000
 > Wersja desktopowa wymaga działającego środowiska graficznego (na Linuksie
 > także pakietu `python3-tk`). Na Windows i macOS tkinter jest wbudowany.
 
+## Układ współrzędnych (CRS) eksportu
+
+Domyślnie DXF jest eksportowany w **układzie 2000 (PL-2000)**. Właściwa strefa
+(5/6/7/8 → EPSG 2176/2177/2178/2179) jest **dobierana automatycznie** na
+podstawie położenia danych (południk osiowy 15°/18°/21°/24° E). Układ można
+też wybrać ręcznie:
+
+- w wersji desktopowej i web — lista rozwijana „Układ współrzędnych DXF",
+- w CLI — opcja `--crs` (`2000` domyślnie, `1992`, `source` lub kod EPSG).
+
+Przykład: dane z okolic Mrozów (~21° E) trafiają do **PL-2000 strefa 7
+(EPSG:2178)**, więc współrzędne X (easting) zaczynają się od `7…`.
+
 ## Użycie z linii poleceń (bez przeglądarki)
 
 ```bash
-python cli.py plik.gpkg                       # eksport wszystkich warstw
+python cli.py plik.gpkg                       # eksport wszystkich warstw (PL-2000)
 python cli.py plik.gpkg -o wynik.dxf          # własna nazwa wyjścia
 python cli.py plik.gpkg --layers linie studnie # tylko wybrane warstwy
 python cli.py plik.gpkg --no-labels           # bez etykiet tekstowych
+python cli.py plik.gpkg --crs 1992            # eksport w układzie 1992 (EPSG:2180)
+python cli.py plik.gpkg --crs 2178            # wymuś konkretną strefę/EPSG
+python cli.py plik.gpkg --crs source          # bez reprojekcji (jak w pliku)
 python cli.py plik.gpkg --list                # tylko wypisz warstwy i CRS
 ```
 
@@ -94,9 +110,11 @@ requirements.txt       — zależności
    i dekodowane przez Shapely.
 2. **Podgląd** – geometrie są reprojektowane do WGS84 (`pyproj`) i serwowane
    jako GeoJSON, który Leaflet rysuje na kafelkach OpenStreetMap.
-3. **Eksport** – `ezdxf` tworzy dokument DXF (R2010), jedna warstwa GPKG =
-   jedna warstwa DXF, we **współrzędnych oryginalnych** (bez reprojekcji),
-   żeby rysunek nadawał się do pracy w CAD.
+3. **Eksport** – współrzędne są reprojektowane do układu docelowego
+   (domyślnie **PL-2000**, strefa dobrana automatycznie), a `ezdxf` tworzy
+   dokument DXF (R2010): jedna warstwa GPKG = jedna warstwa DXF. Rysunek jest
+   geo-poprawny i gotowy do pracy w CAD. Reprojekcję można wyłączyć
+   (`--crs source`), aby zachować współrzędne oryginalne.
 
 ## Przykładowy plik
 

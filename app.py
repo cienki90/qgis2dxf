@@ -27,10 +27,26 @@ from flask import (
 )
 
 from gpkg2dxf import (
+    AUTO_PL2000,
     export_to_dxf,
     layers_to_geojson_wgs84,
     read_gpkg_layers,
 )
+
+
+def _resolve_target_crs(value):
+    """Map a UI/API 'crs' value to the export target_epsg argument."""
+    v = str(value or "").strip().lower()
+    if v in ("2000", "pl2000", "pl-2000", "auto"):
+        return AUTO_PL2000
+    if v in ("1992", "pl1992", "pl-1992", "cs92"):
+        return 2180
+    if v in ("source", "src"):
+        return None
+    try:
+        return int(v)
+    except ValueError:
+        return AUTO_PL2000
 
 app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 256 * 1024 * 1024  # 256 MB upload cap
@@ -90,6 +106,7 @@ def export():
     token = data.get("token", "")
     selected = data.get("layers")  # list[str] or None
     include_labels = bool(data.get("include_labels", True))
+    target_epsg = _resolve_target_crs(data.get("crs", "2000"))
 
     try:
         path = _stored_path(token)
@@ -105,6 +122,7 @@ def export():
             layers,
             selected=selected_set,
             include_point_labels=include_labels,
+            target_epsg=target_epsg,
         )
     except Exception as exc:  # noqa: BLE001
         return jsonify({"error": f"Błąd eksportu: {exc}"}), 500

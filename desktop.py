@@ -17,10 +17,22 @@ from tkinter import filedialog, messagebox, ttk
 import tkintermapview
 
 from gpkg2dxf import (
+    AUTO_PL2000,
     export_to_dxf,
     layers_to_map_shapes,
     read_gpkg_layers,
 )
+
+# Opcje układu współrzędnych dla eksportu DXF: etykieta -> wartość target_epsg
+CRS_OPTIONS = [
+    ("PL-2000 (auto strefa 5–8)", AUTO_PL2000),
+    ("PL-2000 strefa 5 (15°E, EPSG:2176)", 2176),
+    ("PL-2000 strefa 6 (18°E, EPSG:2177)", 2177),
+    ("PL-2000 strefa 7 (21°E, EPSG:2178)", 2178),
+    ("PL-2000 strefa 8 (24°E, EPSG:2179)", 2179),
+    ("PL-1992 (EPSG:2180)", 2180),
+    ("bez zmiany (jak w pliku)", None),
+]
 
 # Kolory warstw (hex) — spójne z wersją webową.
 COLORS = [
@@ -82,10 +94,20 @@ class App(tk.Tk):
         # 3 - eksport
         ttk.Label(sidebar, text="3 · EKSPORT",
                   font=("", 9, "bold"), foreground="#64748b").pack(anchor="w")
+
+        ttk.Label(sidebar, text="Układ współrzędnych DXF:").pack(
+            anchor="w", pady=(6, 2))
+        self.crs_var = tk.StringVar(value=CRS_OPTIONS[0][0])
+        crs_combo = ttk.Combobox(
+            sidebar, textvariable=self.crs_var, state="readonly",
+            values=[label for label, _ in CRS_OPTIONS],
+        )
+        crs_combo.pack(fill="x", pady=(0, 8))
+
         self.labels_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(sidebar,
                         text="Dodaj etykiety tekstowe (opis/numer)",
-                        variable=self.labels_var).pack(anchor="w", pady=(6, 8))
+                        variable=self.labels_var).pack(anchor="w", pady=(0, 8))
         self.export_btn = ttk.Button(sidebar, text="⬇  Eksportuj do DXF…",
                                      command=self.export, state="disabled")
         self.export_btn.pack(fill="x")
@@ -240,11 +262,13 @@ class App(tk.Tk):
         )
         if not out:
             return
+        target_epsg = dict(CRS_OPTIONS).get(self.crs_var.get(), AUTO_PL2000)
         try:
             data = export_to_dxf(
                 self.layers,
                 selected=selected,
                 include_point_labels=self.labels_var.get(),
+                target_epsg=target_epsg,
             )
             with open(out, "wb") as fh:
                 fh.write(data)
