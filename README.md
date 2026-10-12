@@ -27,8 +27,13 @@ z przyjaznym interfejsem i podglądem lokalizacji obiektów na mapie
 
 ## Wymagania
 
-- Python 3.10+ (działa na 3.10–3.14)
-- Pakiety z `requirements.txt`: Flask, Fiona, Shapely, pyproj, ezdxf
+- Python 3.10–3.12 (64-bit zalecany)
+- Pakiety z `requirements.txt`: Flask, **pyogrio**, Shapely, pyproj, ezdxf,
+  tkintermapview
+
+> **Dlaczego pyogrio, a nie Fiona?** `pyogrio` dostarcza gotowe pakiety
+> (*wheele*) z **wbudowanym GDAL**, więc `pip install` działa od ręki na
+> Windows/macOS/Linux — bez instalowania GDAL w systemie i bez kompilacji.
 
 ## Szybki start (Windows)
 
@@ -84,8 +89,9 @@ requirements.txt       — zależności
 
 ## Jak to działa (w skrócie)
 
-1. **Odczyt** – `fiona` czyta warstwy GPKG; wewnętrzna tabela stylów QGIS
-   `layer_styles` jest pomijana.
+1. **Odczyt** – `pyogrio` (GDAL/OGR) czyta warstwy GPKG; wewnętrzna tabela
+   stylów QGIS `layer_styles` jest pomijana. Geometrie wczytywane są jako WKB
+   i dekodowane przez Shapely.
 2. **Podgląd** – geometrie są reprojektowane do WGS84 (`pyproj`) i serwowane
    jako GeoJSON, który Leaflet rysuje na kafelkach OpenStreetMap.
 3. **Eksport** – `ezdxf` tworzy dokument DXF (R2010), jedna warstwa GPKG =
@@ -97,3 +103,26 @@ requirements.txt       — zależności
 `projekt_mrowcza_gruszy_final(1).gpkg` — projekt infrastruktury
 światłowodowej (warstwy: `linie`, `slupy`, `studnie`, `etykiety`) w układzie
 EPSG:2180, okolice Mrozów (woj. mazowieckie).
+
+## Rozwiązywanie problemów
+
+**`A GDAL API version must be specified ... gdal-config` przy instalacji Fiony**
+Ten projekt **nie używa już Fiony** — zależnością jest `pyogrio` (gotowe wheele
+z wbudowanym GDAL). Jeśli widzisz ten błąd, masz stary `requirements.txt`
+albo środowisko z zainstalowaną Fioną. Zrób świeżą instalację:
+
+```bat
+rmdir /s /q .venv
+setup.bat
+```
+
+lub ręcznie:
+
+```bash
+pip install --upgrade pip
+pip install --prefer-binary -r requirements.txt
+```
+
+**Brak okna / błąd `tkinter` w wersji desktopowej (Linux)**
+Zainstaluj systemowy pakiet Tk: `sudo apt install python3-tk`. Na Windows i
+macOS tkinter jest wbudowany w Pythona.

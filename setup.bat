@@ -30,16 +30,22 @@ if errorlevel 1 (
 )
 
 call .venv\Scripts\activate.bat
-echo Aktualizacja pip ...
-python -m pip install --upgrade pip
+echo Aktualizacja pip / setuptools / wheel ...
+python -m pip install --upgrade pip setuptools wheel
 echo Instalacja pakietow z requirements.txt ...
-python -m pip install -r requirements.txt
+rem --prefer-binary wymusza gotowe wheele (np. pyogrio z wbudowanym GDAL),
+rem dzieki czemu nie jest potrzebny systemowy GDAL ani kompilator.
+python -m pip install --prefer-binary -r requirements.txt
 if errorlevel 1 (
+    echo.
     echo [BLAD] Instalacja zaleznosci nie powiodla sie.
+    echo   Upewnij sie, ze masz Python 3.10-3.12 (64-bit) i aktualny pip.
     pause
     exit /b 1
 )
 
 echo.
-echo === Gotowe. Uruchom aplikacje przez: uruchom.bat ===
+echo === Gotowe. ===
+echo   pulpit.bat   - aplikacja desktopowa (okno z mapa)
+echo   uruchom.bat  - wersja web (http://127.0.0.1:5000)
 pause

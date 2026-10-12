@@ -12,7 +12,7 @@ if not exist ".venv\Scripts\activate.bat" (
 call .venv\Scripts\activate.bat
 
 echo === Sprawdzanie zaleznosci ===
-python -c "import flask, fiona, shapely, pyproj, ezdxf; print('OK - wszystkie pakiety dostepne')"
+python -c "import flask, pyogrio, shapely, pyproj, ezdxf; print('OK - wszystkie pakiety dostepne')"
 if errorlevel 1 (
     echo [BLAD] Brakuje zaleznosci. Uruchom setup.bat
     pause

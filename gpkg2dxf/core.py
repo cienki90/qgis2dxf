@@ -4,8 +4,10 @@ to DXF, plus helpers for building an OSM/Leaflet preview (GeoJSON in WGS84).
 
 Design notes
 ------------
-* A GPKG is read with Fiona. The QGIS internal style table ``layer_styles`` is
-  skipped automatically because it carries no geometry.
+* A GPKG is read with ``pyogrio`` (GDAL/OGR bindings that ship as prebuilt
+  wheels with a bundled GDAL — so ``pip install`` needs no system GDAL, unlike
+  Fiona which otherwise tries to compile against ``gdal-config``). The QGIS
+  internal style table ``layer_styles`` is skipped because it has no geometry.
 * The DXF is written with ezdxf. Each GPKG layer becomes one DXF layer. The
   original projected coordinates (e.g. EPSG:2180) are preserved in the DXF so
   the drawing stays geo-correct for CAD/surveying use.
@@ -19,8 +21,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import ezdxf
-import fiona
+from pyogrio import list_layers
+from pyogrio.raw import read as _ogr_read
 from pyproj import CRS, Transformer
+from shapely import wkb as _wkb
 from shapely.geometry import mapping, shape
 from shapely.ops import transform as shp_transform
 
@@ -55,52 +59,90 @@ class LayerInfo:
         }
 
 
-def _resolve_epsg(crs: CRS | None) -> int | None:
-    if not crs:
-        return None
+def _resolve_crs(crs_str: str | None) -> tuple[int | None, str | None]:
+    """Return (epsg, human_name) from pyogrio's CRS string (e.g. 'EPSG:2180')."""
+    if not crs_str:
+        return None, None
+    try:
+        crs = CRS.from_user_input(crs_str)
+    except Exception:
+        return None, None
     epsg = crs.to_epsg()
     if epsg is None:
-        # Polish national grids often fail strict EPSG matching; loosen it.
+        # Polish national grids sometimes fail strict EPSG matching; loosen it.
         epsg = crs.to_epsg(min_confidence=20)
-    return epsg
+    return epsg, crs.name
+
+
+def _to_native(value):
+    """Convert numpy scalars / NaT / NaN to plain Python for JSON + DXF text."""
+    if value is None:
+        return None
+    # numpy scalar -> python scalar
+    item = getattr(value, "item", None)
+    if callable(item):
+        try:
+            value = value.item()
+        except Exception:
+            pass
+    # NaN -> None
+    try:
+        if isinstance(value, float) and value != value:
+            return None
+    except Exception:
+        pass
+    return value
 
 
 def read_gpkg_layers(path: str) -> list[LayerInfo]:
     """Read every spatial layer from a GPKG into LayerInfo objects.
+
+    Uses pyogrio's raw reader, which returns, per layer:
+        (meta, fids, geometries_as_wkb, field_data_columns)
+    Geometries (WKB) are decoded with shapely and stored as GeoJSON-style
+    dicts so the rest of the pipeline stays format-agnostic.
 
     Features are materialised into memory. GPKG files handled by this tool are
     survey/infrastructure projects (hundreds to low-thousands of features), so
     this is fine; for very large datasets a streaming approach would be needed.
     """
     result: list[LayerInfo] = []
-    for layer_name in fiona.listlayers(path):
+    layer_table = list_layers(path)  # ndarray of [name, geometry_type]
+    for row in layer_table:
+        layer_name = row[0]
         if layer_name in SKIP_LAYERS:
             continue
-        with fiona.open(path, layer=layer_name) as src:
-            crs = None
-            try:
-                if src.crs:
-                    crs = CRS.from_user_input(dict(src.crs))
-            except Exception:
-                crs = None
 
-            features = [
-                {
-                    "geometry": dict(feat.geometry) if feat.geometry else None,
-                    "properties": dict(feat.properties),
-                }
-                for feat in src
-            ]
-            info = LayerInfo(
-                name=layer_name,
-                geometry_type=src.schema.get("geometry"),
-                feature_count=len(features),
-                fields=list(src.schema.get("properties", {}).keys()),
-                epsg=_resolve_epsg(crs),
-                crs_name=crs.name if crs else None,
-                features=features,
-            )
-            result.append(info)
+        meta, _fids, geometries, field_data = _ogr_read(path, layer=layer_name)
+        field_names = list(meta.get("fields", []))
+        epsg, crs_name = _resolve_crs(meta.get("crs"))
+
+        n = len(geometries) if geometries is not None else 0
+        features: list[dict] = []
+        for i in range(n):
+            geom_dict = None
+            wkb_bytes = geometries[i] if geometries is not None else None
+            if wkb_bytes is not None:
+                try:
+                    geom_dict = mapping(_wkb.loads(bytes(wkb_bytes)))
+                except Exception:
+                    geom_dict = None
+            props = {
+                field_names[c]: _to_native(field_data[c][i])
+                for c in range(len(field_names))
+            }
+            features.append({"geometry": geom_dict, "properties": props})
+
+        info = LayerInfo(
+            name=layer_name,
+            geometry_type=meta.get("geometry_type"),
+            feature_count=len(features),
+            fields=field_names,
+            epsg=epsg,
+            crs_name=crs_name,
+            features=features,
+        )
+        result.append(info)
     return result
 
 
