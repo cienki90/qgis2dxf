@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>GPKG → DXF — konwerter z podglądem na mapie</title>
+
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+    crossorigin=""
+  />
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #1e293b;
+      --panel-2: #273449;
+      --accent: #f97316;
+      --accent-2: #fb923c;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --border: #334155;
+      --ok: #22c55e;
+      --err: #ef4444;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+    header {
+      padding: 14px 20px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    header h1 { font-size: 18px; margin: 0; font-weight: 650; }
+    header .badge {
+      background: var(--accent);
+      color: #1a1206;
+      border-radius: 6px;
+      padding: 2px 8px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    header .sub { color: var(--muted); font-size: 13px; }
+    main { flex: 1; display: flex; min-height: 0; }
+    #sidebar {
+      width: 340px;
+      background: var(--panel);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+    #map { flex: 1; background: #334155; }
+    .section { padding: 16px; border-bottom: 1px solid var(--border); }
+    .section h2 {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      color: var(--muted);
+      margin: 0 0 10px;
+    }
+    .drop {
+      border: 2px dashed var(--border);
+      border-radius: 10px;
+      padding: 22px 14px;
+      text-align: center;
+      cursor: pointer;
+      transition: .15s;
+      color: var(--muted);
+    }
+    .drop:hover, .drop.drag { border-color: var(--accent); color: var(--text); background: var(--panel-2); }
+    .drop strong { color: var(--accent-2); }
+    input[type=file] { display: none; }
+    .filename { font-size: 13px; margin-top: 10px; color: var(--text); word-break: break-all; }
+    .layer {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 10px;
+      border-radius: 8px;
+      margin-bottom: 6px;
+      background: var(--panel-2);
+    }
+    .layer input { accent-color: var(--accent); width: 16px; height: 16px; }
+    .swatch { width: 12px; height: 12px; border-radius: 3px; flex: none; }
+    .layer .meta { flex: 1; min-width: 0; }
+    .layer .name { font-size: 14px; font-weight: 600; }
+    .layer .info { font-size: 11px; color: var(--muted); }
+    .opt { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); margin-top: 4px; }
+    .opt input { accent-color: var(--accent); }
+    button.export {
+      width: 100%;
+      padding: 12px;
+      border: none;
+      border-radius: 10px;
+      background: var(--accent);
+      color: #1a1206;
+      font-weight: 700;
+      font-size: 15px;
+      cursor: pointer;
+      transition: .15s;
+    }
+    button.export:hover { background: var(--accent-2); }
+    button.export:disabled { opacity: .4; cursor: not-allowed; }
+    .msg { font-size: 13px; margin-top: 10px; min-height: 18px; }
+    .msg.ok { color: var(--ok); }
+    .msg.err { color: var(--err); }
+    .msg.load { color: var(--muted); }
+    .empty { color: var(--muted); font-size: 13px; }
+    .spin {
+      display: inline-block; width: 14px; height: 14px;
+      border: 2px solid var(--muted); border-top-color: var(--accent);
+      border-radius: 50%; animation: s .8s linear infinite; vertical-align: -2px; margin-right: 6px;
+    }
+    @keyframes s { to { transform: rotate(360deg); } }
+    .leaflet-popup-content { font-size: 12px; }
+    .leaflet-popup-content b { color: #1e293b; }
+  </style>
+</head>
+<body>
+  <header>
+    <span class="badge">GPKG → DXF</span>
+    <h1>Konwerter GeoPackage do DXF</h1>
+    <span class="sub">podgląd na mapie OpenStreetMap</span>
+  </header>
+
+  <main>
+    <aside id="sidebar">
+      <div class="section">
+        <h2>1 · Plik źródłowy</h2>
+        <label class="drop" id="drop">
+          Przeciągnij plik <strong>.gpkg</strong> tutaj<br />lub kliknij, aby wybrać
+          <input type="file" id="file" accept=".gpkg" />
+        </label>
+        <div class="filename" id="filename"></div>
+        <div class="msg load" id="uploadMsg"></div>
+      </div>
+
+      <div class="section">
+        <h2>2 · Warstwy</h2>
+        <div id="layers"><div class="empty">Najpierw wczytaj plik GPKG.</div></div>
+      </div>
+
+      <div class="section">
+        <h2>3 · Eksport</h2>
+        <label class="opt">
+          <input type="checkbox" id="labels" checked />
+          Dodaj etykiety tekstowe (opis/numer) dla punktów
+        </label>
+        <div style="height:12px"></div>
+        <button class="export" id="exportBtn" disabled>⬇ Eksportuj do DXF</button>
+        <div class="msg" id="exportMsg"></div>
+      </div>
+    </aside>
+
+    <div id="map"></div>
+  </main>
+
+  <script
+    src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+    crossorigin=""
+  ></script>
+  <script>
+    const COLORS = ["#f97316", "#22c55e", "#3b82f6", "#e11d9a", "#eab308",
+                    "#06b6d4", "#a855f7", "#f43f5e", "#84cc16", "#14b8a6"];
+
+    const map = L.map("map", { zoomControl: true }).setView([52.0, 19.4], 6);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    }).addTo(map);
+
+    let state = { token: null, filename: null, layers: [], layerGroups: {} };
+
+    const el = (id) => document.getElementById(id);
+    const drop = el("drop"), fileInput = el("file");
+
+    drop.addEventListener("click", () => fileInput.click());
+    ["dragover", "dragenter"].forEach((e) =>
+      drop.addEventListener(e, (ev) => { ev.preventDefault(); drop.classList.add("drag"); })
+    );
+    ["dragleave", "drop"].forEach((e) =>
+      drop.addEventListener(e, (ev) => { ev.preventDefault(); drop.classList.remove("drag"); })
+    );
+    drop.addEventListener("drop", (ev) => {
+      if (ev.dataTransfer.files.length) handleFile(ev.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener("change", () => {
+      if (fileInput.files.length) handleFile(fileInput.files[0]);
+    });
+
+    function colorFor(i) { return COLORS[i % COLORS.length]; }
+
+    async function handleFile(file) {
+      if (!file.name.toLowerCase().endsWith(".gpkg")) {
+        setMsg("uploadMsg", "err", "To nie jest plik .gpkg");
+        return;
+      }
+      el("filename").textContent = file.name;
+      setMsg("uploadMsg", "load", '<span class="spin"></span>Wczytywanie i analiza pliku…');
+      el("exportBtn").disabled = true;
+
+      const fd = new FormData();
+      fd.append("file", file);
+      try {
+        const res = await fetch("/api/upload", { method: "POST", body: fd });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || "Błąd serwera");
+        state.token = data.token;
+        state.filename = data.filename;
+        state.layers = data.layers;
+        renderLayers(data.layers);
+        renderMap(data.geojson, data.layers);
+        setMsg("uploadMsg", "ok", `Wczytano ${data.layers.length} warstw.`);
+        el("exportBtn").disabled = false;
+      } catch (err) {
+        setMsg("uploadMsg", "err", err.message);
+      }
+    }
+
+    function renderLayers(layers) {
+      const box = el("layers");
+      if (!layers.length) { box.innerHTML = '<div class="empty">Brak warstw.</div>'; return; }
+      box.innerHTML = "";
+      layers.forEach((lyr, i) => {
+        const row = document.createElement("div");
+        row.className = "layer";
+        const geo = lyr.geometry_type || "—";
+        const crs = lyr.epsg ? ("EPSG:" + lyr.epsg) : (lyr.crs_name || "brak CRS");
+        row.innerHTML = `
+          <input type="checkbox" data-layer="${lyr.name}" ${lyr.feature_count ? "checked" : ""} />
+          <span class="swatch" style="background:${colorFor(i)}"></span>
+          <div class="meta">
+            <div class="name">${lyr.name}</div>
+            <div class="info">${geo} · ${lyr.feature_count} obiekt. · ${crs}</div>
+          </div>`;
+        const cb = row.querySelector("input");
+        cb.addEventListener("change", () => toggleLayer(lyr.name, cb.checked));
+        box.appendChild(row);
+      });
+    }
+
+    function renderMap(geojson, layers) {
+      Object.values(state.layerGroups).forEach((g) => map.removeLayer(g));
+      state.layerGroups = {};
+      const colorByLayer = {};
+      layers.forEach((l, i) => (colorByLayer[l.name] = colorFor(i)));
+
+      layers.forEach((l) => (state.layerGroups[l.name] = L.layerGroup().addTo(map)));
+
+      let any = false;
+      L.geoJSON(geojson, {
+        style: (f) => ({ color: colorByLayer[f.properties.__layer__] || "#f97316", weight: 3 }),
+        pointToLayer: (f, latlng) =>
+          L.circleMarker(latlng, {
+            radius: 5, color: "#0f172a", weight: 1,
+            fillColor: colorByLayer[f.properties.__layer__] || "#f97316", fillOpacity: 0.9,
+          }),
+        onEachFeature: (f, layer) => {
+          const p = f.properties || {};
+          const rows = Object.entries(p)
+            .filter(([k]) => k !== "__layer__")
+            .map(([k, v]) => `<b>${k}</b>: ${v}`).join("<br>");
+          layer.bindPopup(`<b>warstwa: ${p.__layer__}</b><br>${rows}`);
+          const grp = state.layerGroups[p.__layer__];
+          if (grp) { grp.addLayer(layer); any = true; }
+        },
+      });
+
+      if (any) {
+        const all = L.featureGroup(Object.values(state.layerGroups).flatMap(g => g.getLayers()));
+        try { map.fitBounds(all.getBounds().pad(0.15)); } catch (e) {}
+      }
+    }
+
+    function toggleLayer(name, on) {
+      const g = state.layerGroups[name];
+      if (!g) return;
+      if (on) g.addTo(map); else map.removeLayer(g);
+    }
+
+    el("exportBtn").addEventListener("click", async () => {
+      if (!state.token) return;
+      const selected = [...document.querySelectorAll("#layers input[type=checkbox]:checked")]
+        .map((c) => c.dataset.layer);
+      if (!selected.length) { setMsg("exportMsg", "err", "Zaznacz co najmniej jedną warstwę."); return; }
+
+      setMsg("exportMsg", "load", '<span class="spin"></span>Generowanie DXF…');
+      try {
+        const res = await fetch("/api/export", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            token: state.token,
+            filename: state.filename,
+            layers: selected,
+            include_labels: el("labels").checked,
+          }),
+        });
+        if (!res.ok) {
+          const d = await res.json().catch(() => ({}));
+          throw new Error(d.error || "Błąd eksportu");
+        }
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = (state.filename || "export").replace(/\.gpkg$/i, "") + ".dxf";
+        a.click();
+        URL.revokeObjectURL(url);
+        setMsg("exportMsg", "ok", "Gotowe — plik DXF pobrany.");
+      } catch (err) {
+        setMsg("exportMsg", "err", err.message);
+      }
+    });
+
+    function setMsg(id, cls, html) {
+      const m = el(id);
+      m.className = "msg " + cls;
+      m.innerHTML = html;
+    }
+  </script>
+</body>
+</html>

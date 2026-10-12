@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.pyc
+.python-version
+_test_wynik.dxf
+*.dxf
+!examples/*.dxf
